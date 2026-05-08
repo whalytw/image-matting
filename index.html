@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNG 智慧去背 Pro v3.8</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; }
+        .panel { background-color: #1e293b; border: 1px solid #334155; }
+        .input-field { background-color: #0f172a; border: 1px solid #475569; color: white; padding: 6px 12px; border-radius: 8px; }
+        .input-field:focus { border-color: #3b82f6; outline: none; }
+        
+        .preview-card { 
+            background-image: 
+                linear-gradient(45deg, #1e293b 25%, transparent 25%), 
+                linear-gradient(-45deg, #1e293b 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #1e293b 75%), 
+                linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+        canvas { image-rendering: pixelated; max-width: 100%; height: auto; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    </style>
+</head>
+<body class="p-4 min-h-screen">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">✨</span>
+                <h1 class="text-2xl font-bold">PNG 智慧去背 <span class="text-blue-400">Pro v3.8</span></h1>
+            </div>
+            <div id="file-count" class="text-sm text-slate-400">尚未上傳圖片</div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- 左側控制區 -->
+            <div class="lg:col-span-4 space-y-6">
+                <div class="panel p-6 rounded-2xl shadow-xl space-y-8">
+                    <!-- 1. 上傳 -->
+                    <section>
+                        <h2 class="text-xs font-bold text-slate-500 mb-4 uppercase tracking-widest">1. 圖片上傳</h2>
+                        <div id="drop-zone" class="border-2 border-dashed border-slate-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all">
+                            <input type="file" id="file-input" accept="image/png" multiple class="hidden">
+                            <div class="text-3xl mb-2">☁️</div>
+                            <p class="text-sm text-slate-400">點擊或拖曳多張 PNG 圖片</p>
+                        </div>
+                    </section>
+
+                    <!-- 2. 去背參數 -->
+                    <section class="space-y-5">
+                        <h2 class="text-xs font-bold text-slate-500 mb-4 uppercase tracking-widest">2. 去背參數與修邊</h2>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">目標移除色</label>
+<input type="color" id="color-target" value="#00ff00" class="w-full h-10 cursor-pointer bg-transparent border-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">對比預覽色</label>
+                                <input type="color" id="color-contrast" value="#ff00ff" class="w-full h-10 cursor-pointer bg-transparent border-none">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">顏色容許值 (Tolerance)</span>
+                                <span id="val-tol" class="text-blue-400 font-mono">60</span>
+                            </div>
+                            <input type="range" id="range-tol" min="0" max="255" value="60" class="w-full accent-blue-500">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">邊緣內縮 (Edge Inset)</span>
+                                <span id="val-inset" class="text-blue-400 font-mono">2px</span>
+                            </div>
+                            <input type="range" id="range-inset" min="0" max="10" value="2" class="w-full accent-blue-500">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="use-transparent-preview" checked class="accent-blue-500">
+                            <label for="use-transparent-preview" class="text-xs text-slate-300">預覽使用透明底 (不使用對比色)</label>
+                        </div>
+                    </section>
+
+                    <!-- 3. 輸出設定 -->
+                    <section class="space-y-5">
+                        <h2 class="text-xs font-bold text-slate-500 mb-4 uppercase tracking-widest">3. 輸出設定</h2>
+                        <div class="space-y-3">
+                            <label class="flex items-center gap-3 cursor-pointer text-sm">
+                                <input type="radio" name="size-mode" value="original" checked class="accent-blue-500"> 維持原圖大小
+                            </label>
+                            <label class="flex items-center gap-3 cursor-pointer text-sm">
+                                <input type="radio" name="size-mode" value="custom" class="accent-blue-500"> 自訂尺寸
+                            </label>
+                            <div id="custom-size-inputs" class="grid grid-cols-2 gap-3 hidden pl-6">
+                                <div>
+                                    <label class="block text-[10px] text-slate-500 uppercase">寬度 (px)</label>
+                                    <input type="number" id="out-w" value="320" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-slate-500 uppercase">高度 (px)</label>
+                                    <input type="number" id="out-h" value="270" class="input-field w-full">
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">起始流水號編號</label>
+                            <input type="text" id="start-index" value="01" class="input-field w-full" placeholder="例如: 01">
+                        </div>
+                    </section>
+
+                    <button id="btn-download" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-900/20 active:scale-95 disabled:opacity-50">
+                        打包下載 ZIP
+                    </button>
+                </div>
+            </div>
+
+            <!-- 右側預覽區 -->
+            <div class="lg:col-span-8">
+<div id="preview-gallery" class="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto max-h-[calc(100vh-120px)] pr-2 custom-scrollbar">
+                    <!-- 預覽卡片將在此生成 -->
+                    <div class="col-span-full flex flex-col items-center justify-center py-20 text-slate-600">
+                        <div class="text-6xl mb-4">🖼️</div>
+                        <p>請上傳圖片以開始預覽</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let uploadedFiles = []; // { file, originalImage, canvas }
+        
+        const elements = {
+            fileInput: document.getElementById('file-input'),
+            dropZone: document.getElementById('drop-zone'),
+            gallery: document.getElementById('preview-gallery'),
+            colorTarget: document.getElementById('color-target'),
+            colorContrast: document.getElementById('color-contrast'),
+            rangeTol: document.getElementById('range-tol'),
+            rangeInset: document.getElementById('range-inset'),
+            useTransparent: document.getElementById('use-transparent-preview'),
+            btnDownload: document.getElementById('btn-download'),
+            startIndex: document.getElementById('start-index'),
+            fileCount: document.getElementById('file-count')
+        };
+
+        // --- 初始化 ---
+        elements.dropZone.onclick = () => elements.fileInput.click();
+        elements.fileInput.onchange = (e) => handleFiles(e.target.files);
+        
+        elements.dropZone.ondragover = (e) => { e.preventDefault(); elements.dropZone.classList.add('border-blue-500'); };
+        elements.dropZone.ondragleave = () => elements.dropZone.classList.remove('border-blue-500');
+        elements.dropZone.ondrop = (e) => {
+            e.preventDefault();
+            elements.dropZone.classList.remove('border-blue-500');
+            handleFiles(e.dataTransfer.files);
+        };
+
+        // 尺寸切換
+        document.querySelectorAll('input[name="size-mode"]').forEach(radio => {
+            radio.onchange = () => {
+                document.getElementById('custom-size-inputs').classList.toggle('hidden', radio.value === 'original');
+            };
+        });
+
+        async function handleFiles(files) {
+            const pngFiles = Array.from(files).filter(f => f.type === 'image/png');
+            if (pngFiles.length === 0) return;
+
+            for (const file of pngFiles) {
+                const img = await loadImage(file);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(img, 0, 0);
+                
+                uploadedFiles.push({ file, originalImage: img, canvas, ctx });
+            }
+            
+            updateFileCount();
+            renderGallery();
+        }
+
+        function loadImage(file) {
+            return new Promise(res => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => res(img);
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function updateFileCount() {
+            elements.fileCount.innerText = uploadedFiles.length > 0 
+                ? `已載入 ${uploadedFiles.length} 張圖片` 
+                : '尚未上傳圖片';
+        }
+
+        // --- 核心去背算法 ---
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
+        }
+
+        function processChromaKey(ctx, w, h, targetHex, tol, inset, contrastHex, isPreview = true, useTransparent = true) {
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const data = imgData.data;
+const target = hexToRgb(targetHex);
+            const contrast = hexToRgb(contrastHex);
+            
+            const mask = new Uint8Array(w * h);
+            for (let i = 0; i < data.length; i += 4) {
+                const diff = Math.sqrt(Math.pow(data[i]-target.r, 2) + Math.pow(data[i+1]-target.g, 2) + Math.pow(data[i+2]-target.b, 2));
+                mask[i/4] = diff <= tol ? 0 : 255;
+            }
+
+            if (inset > 0) {
+                const newMask = new Uint8Array(mask);
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        let isBorder = false;
+                        for (let dy = -inset; dy <= inset; dy++) {
+                            for (let dx = -inset; dx <= inset; dx++) {
+                                const nx = x + dx; const ny = y + dy;
+                                if (nx >= 0 && nx < w && ny >= 0 && ny < h && mask[ny * w + nx] === 0) {
+                                    isBorder = true; break;
+                                }
+                            }
+                            if (isBorder) break;
+                        }
+                        newMask[y * w + x] = isBorder ? 0 : 255;
+                    }
+                }
+                for (let i = 0; i < mask.length; i++) mask[i] = newMask[i];
+            }
+
+            for (let i = 0; i < data.length; i += 4) {
+                if (mask[i/4] === 0) {
+                    if (isPreview && !useTransparent) {
+                        data[i] = contrast.r; data[i+1] = contrast.g; data[i+2] = contrast.b; data[i+3] = 255;
+                    } else {
+                        data[i+3] = 0;
+                    }
+                }
+            }
+            return imgData;
+        }
+
+        function renderGallery() {
+            if (uploadedFiles.length === 0) return;
+            elements.gallery.innerHTML = '';
+            
+            const tol = parseInt(elements.rangeTol.value);
+            const inset = parseInt(elements.rangeInset.value);
+            const targetColor = elements.colorTarget.value;
+            const contrastColor = elements.colorContrast.value;
+            const useTrans = elements.useTransparent.checked;
+
+            uploadedFiles.forEach((item, idx) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'panel p-4 rounded-2xl flex flex-col items-center gap-3 shadow-lg';
+                
+                const card = document.createElement('div');
+                card.className = 'preview-card rounded-lg overflow-hidden w-full flex justify-center items-center p-2';
+                
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // 重新繪製原始圖到臨時畫布
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = item.originalImage.width;
+                tempCanvas.height = item.originalImage.height;
+                const tctx = tempCanvas.getContext('2d');
+                tctx.drawImage(item.originalImage, 0, 0);
+                
+                const processed = processChromaKey(tctx, tempCanvas.width, tempCanvas.height, targetColor, tol, inset, contrastColor, true, useTrans);
+                
+                // 設定預覽尺寸 (最大寬 600px)
+                const scale = Math.min(1, 600 / item.originalImage.width);
+                canvas.width = item.originalImage.width * scale;
+                canvas.height = item.originalImage.height * scale;
+                
+                // 縮放並繪製處理後的結果
+                const scaledData = new ImageData(new Uint8ClampedArray(processed.data), processed.width, processed.height);
+                
+                // 為了效能，預覽直接使用縮放繪製
+                const drawCanvas = document.createElement('canvas');
+                drawCanvas.width = processed.width;
+                drawCanvas.height = processed.height;
+                drawCanvas.getContext('2d').putImageData(processed, 0, 0);
+ctx.drawImage(drawCanvas, 0, 0, canvas.width, canvas.height);
+                
+                card.appendChild(canvas);
+                wrapper.appendChild(card);
+                
+                const label = document.createElement('div');
+                label.className = 'text-xs text-slate-500 font-mono';
+                label.innerText = `File ${idx+1}: ${item.file.name}`;
+                wrapper.appendChild(label);
+                
+                elements.gallery.appendChild(wrapper);
+            });
+        }
+
+        // --- 事件監聽 ---
+        [elements.colorTarget, elements.colorContrast, elements.rangeTol, elements.rangeInset, elements.useTransparent].forEach(el => {
+            el.oninput = () => {
+                document.getElementById('val-tol').innerText = elements.rangeTol.value;
+                document.getElementById('val-inset').innerText = elements.rangeInset.value + 'px';
+                renderGallery();
+            };
+        });
+
+        elements.btnDownload.onclick = async () => {
+            if (uploadedFiles.length === 0) return;
+            elements.btnDownload.disabled = true;
+            elements.btnDownload.innerText = '⌛️ 處理中...';
+
+            const zip = new JSZip();
+            const tol = parseInt(elements.rangeTol.value);
+            const inset = parseInt(elements.rangeInset.value);
+            const targetColor = elements.colorTarget.value;
+            const startIdxStr = elements.startIndex.value;
+            const startIdx = parseInt(startIdxStr) || 0;
+            const paddingLen = startIdxStr.length;
+
+            const sizeMode = document.querySelector('input[name="size-mode"]:checked').value;
+            const outW = parseInt(document.getElementById('out-w').value) || 320;
+            const outH = parseInt(document.getElementById('out-h').value) || 270;
+
+            for (let i = 0; i < uploadedFiles.length; i++) {
+                const item = uploadedFiles[i];
+                const w = item.originalImage.width;
+                const h = item.originalImage.height;
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(item.originalImage, 0, 0);
+                
+                // 執行最終去背 (isPreview = false)
+                const processed = processChromaKey(ctx, w, h, targetColor, tol, inset, '#000000', false, true);
+                ctx.putImageData(processed, 0, 0);
+                
+                // 縮放輸出
+                const finalCanvas = document.createElement('canvas');
+                const fctx = finalCanvas.getContext('2d');
+                
+                if (sizeMode === 'original') {
+                    finalCanvas.width = w; finalCanvas.height = h;
+                    fctx.drawImage(canvas, 0, 0);
+                } else {
+                    finalCanvas.width = outW; finalCanvas.height = outH;
+                    fctx.drawImage(canvas, 0, 0, w, h, 0, 0, outW, outH);
+                }
+
+                const fileName = (startIdx + i).toString().padStart(paddingLen, '0') + '.png';
+                const blob = await new Promise(res => finalCanvas.toBlob(res, 'image/png'));
+                zip.file(fileName, blob);
+            }
+
+            const content = await zip.generateAsync({ type: 'blob' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(content);
+            link.download = `png_batch_removed_${Date.now()}.zip`;
+            link.click();
+
+            elements.btnDownload.disabled = false;
+            elements.btnDownload.innerText = '打包下載 ZIP';
+        };
+    </script>
+</body>
+</html>
+                
